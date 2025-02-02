@@ -82,7 +82,7 @@ pub fn parseArgs(allocator: *std.mem.Allocator, argv: [][]const u8) !Options {
         }
     }
     if (std.mem.eql(u8, opt.input, "")) {
-        std.debug.print("Usage:\n  {s} <input> [--algo|-a <algorithm>]\nUse '--list' to see supported algorithms.\n", .{argv[0]});
+        std.debug.print("Usage:\n  {s} <input> [--algo|-a <algorithm>] [--file|-f <file loc>] [--compare|-c <hash>]\nUse '--list' to see supported algorithms.\n", .{argv[0]});
         return error.InvalidUsage;
     }
     return opt;
