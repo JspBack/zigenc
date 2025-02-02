@@ -7,6 +7,8 @@ const sha256 = @import("algo.zig").sha256;
 const sha512 = @import("algo.zig").sha512;
 const blake256 = @import("algo.zig").blake256;
 
+const toHex = @import("utils.zig").toHex;
+
 pub fn main() !void {
     var allocator = std.heap.page_allocator;
     const argv = try std.process.argsAlloc(allocator);
@@ -14,12 +16,22 @@ pub fn main() !void {
 
     var input: ?[]const u8 = null;
     var algo: ?[]const u8 = null;
+    var readFromFile = false;
+    var compareHash: ?[]const u8 = null;
+
     var i: usize = 1;
     while (i < argv.len) : (i += 1) {
         const arg = argv[i];
         if (std.mem.eql(u8, arg, "--list") or std.mem.eql(u8, arg, "ls")) {
-            std.debug.print("Usage:\n  {s} <input> [--algo|-a <algorithm>]\n\nSupported algorithms:\n  rot13   : Apply ROT13 cipher\n  reverse : Reverse the input\n  upper   : Convert letters to uppercase\n  sha256  : Compute SHA-256 hash (32-byte output in hex)\n  sha512  : Compute SHA-512 hash (64-byte output in hex)\n  blake256: Compute BLAKE2s-256 hash (32-byte output in hex)\n", .{argv[0]});
+            std.debug.print("Usage:\n  {s} <input> [--algo|-a <algorithm>] [--file|-f <file loc>] [--compare|-c <hash>]\n\nSupported algorithms:\n  rot13   : Apply ROT13 cipher (not for files)\n  reverse : Reverse the input (not for files)\n  upper   : Convert letters to uppercase (not for files)\n  sha256  : Compute SHA-256 hash (32-byte output in hex)\n  sha512  : Compute SHA-512 hash (64-byte output in hex)\n  blake256: Compute BLAKE2s-256 hash (32-byte output in hex)\n", .{argv[0]});
             return;
+        } else if (std.mem.eql(u8, arg, "--compare") or std.mem.eql(u8, arg, "-c")) {
+            i += 1;
+            if (i >= argv.len) {
+                std.debug.print("Error: missing value for --compare flag\n", .{});
+                return;
+            }
+            compareHash = argv[i];
         } else if (std.mem.eql(u8, arg, "--algo") or std.mem.eql(u8, arg, "-a")) {
             i += 1;
             if (i >= argv.len) {
@@ -27,6 +39,24 @@ pub fn main() !void {
                 return;
             }
             algo = argv[i];
+        } else if (std.mem.eql(u8, arg, "--file") or std.mem.eql(u8, arg, "-f")) {
+            i += 1;
+            if (i >= argv.len) {
+                std.debug.print("Error: missing value for --file flag\n", .{});
+                return;
+            }
+
+            const file = try std.fs.cwd().openFile(argv[i], .{});
+            defer file.close();
+
+            const file_size = (try file.stat()).size;
+
+            const buffer = try allocator.alloc(u8, file_size);
+            defer allocator.free(buffer);
+
+            try file.reader().readNoEof(buffer);
+            input = buffer;
+            readFromFile = true;
         } else {
             if (input != null) {
                 // that means we have multiple inputs (probably input with spaces) so we merge them into one
@@ -50,10 +80,14 @@ pub fn main() !void {
         algo = "sha256";
     }
     const inStr = input.?;
+    const selectedAlgo = algo.?;
+    if (readFromFile and !(std.mem.eql(u8, selectedAlgo, "sha256") or std.mem.eql(u8, selectedAlgo, "sha512") or std.mem.eql(u8, selectedAlgo, "blake256"))) {
+        std.debug.print("Error: only sha256, sha512, blake256 are allowed with --file\n", .{});
+        return;
+    }
 
     var outLen: usize = 0;
     var hashOutput: bool = false;
-    const selectedAlgo = algo.?;
     if (std.mem.eql(u8, selectedAlgo, "sha256")) {
         outLen = 32;
         hashOutput = true;
@@ -88,7 +122,17 @@ pub fn main() !void {
     }
 
     if (hashOutput) {
-        std.debug.print("Result ({s} in hex): {x}\n", .{ selectedAlgo, result });
+        const hexResult = try toHex(allocator, result);
+        defer allocator.free(hexResult);
+        if (compareHash != null) {
+            if (std.mem.eql(u8, hexResult, compareHash.?)) {
+                std.debug.print("Hashes match\n", .{});
+            } else {
+                std.debug.print("Hashes differ\n", .{});
+            }
+        } else {
+            std.debug.print("Result ({s} in hex): {s}\n", .{ selectedAlgo, hexResult });
+        }
     } else {
         std.debug.print("Result: {s}\n", .{result});
     }
